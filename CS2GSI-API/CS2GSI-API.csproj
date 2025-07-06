@@ -5,6 +5,7 @@
     <RootNamespace>CS2GSI_API</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <NoWarn>CS8625;CS8618;CS8600;CS8602;CS8603;CS8604;CS8765;CS8714</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -25,9 +25,15 @@ Este projeto fornece uma API REST que captura dados em tempo real do Counter-Str
    ```
 
 2. **Execute o script de inicialização:**
+
+   **Opção A - Para Leigos (RECOMENDADO):**
+   - Dê **duplo clique** no arquivo `start.bat` ou `INICIAR-API.vbs`
+   - Clique "Sim" quando aparecer a pergunta sobre executar como administrador
+
+   **Opção B - Para Desenvolvedores:**
    ```powershell
    # Abra PowerShell como Administrador
-   .\start-simple.ps1
+   .\start.ps1
    ```
 
 3. **Acesse as interfaces:**
@@ -63,14 +69,45 @@ cs2-gsi-go/
 ├── CS2GSI-API/                 # API REST
 │   ├── Program.cs              # Configuração da API
 │   ├── index.html              # Interface visual
-│   ├── start-simple.ps1        # Script de inicialização
-│   ├── start-all.ps1           # Script completo
-│   └── COMO-USAR.txt           # Instruções
+│   ├── start.ps1               # Script completo de inicialização e testes
+│   ├── start.bat               # Inicializador fácil (duplo clique)
+│   ├── start.cmd               # Inicializador alternativo
+│   ├── INICIAR-API.vbs         # Inicializador profissional
+│   ├── start-help.txt          # Ajuda do script
+│   └── COMO-USAR-FACIL.txt     # Instruções para leigos
 ├── CounterStrike2GSI/          # Biblioteca GSI
 └── README.md                   # Este arquivo
 ```
 
 ## 🛠️ Desenvolvimento
+
+### Script Automático (Recomendado)
+
+O script `start.ps1` faz tudo automaticamente:
+
+```powershell
+# Execução completa com verificações e testes
+.\start.ps1
+
+# Pular testes unitários
+.\start.ps1 -SkipTests
+
+# Pular verificações de sistema
+.\start.ps1 -SkipChecks
+
+# Modo headless
+.\start.ps1 -Headless
+```
+
+**O que o script faz:**
+- ✅ Verifica pré-requisitos (.NET, Python, PowerShell)
+- ✅ Testa disponibilidade de portas
+- ✅ Restaura dependências
+- ✅ Executa testes unitários
+- ✅ Testa conectividade de rede
+- ✅ Inicia API e servidor HTTP
+- ✅ Testa todos os endpoints
+- ✅ Monitora serviços em tempo real
 
 ### Executar Manualmente
 
@@ -140,14 +177,6 @@ taskkill /PID <PID> /F
 - Certifique-se de estar na pasta que contém `Program.cs`
 - O script verifica automaticamente
 
-## 🤝 Contribuindo
-
-1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
-
 ## 📄 Licença
 
 Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
@@ -156,11 +185,6 @@ Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalh
 
 - Valve Corporation pelo Game State Integration
 - Comunidade CS2 por feedback e sugestões
-
-## 📞 Suporte
-
-- **Issues**: [GitHub Issues](https://github.com/seu-usuario/cs2-gsi-go/issues)
-- **Documentação**: [Wiki](https://github.com/seu-usuario/cs2-gsi-go/wiki)
 
 ---
 

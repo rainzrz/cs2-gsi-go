@@ -9,6 +9,8 @@ param(
 
 Set-Location -Path $PSScriptRoot
 
+$null = Register-EngineEvent PowerShell.Exiting -Action { Stop-AllServices }
+
 # Configuracoes
 $API_PORT = 5000
 $HTML_PORT = 8080
@@ -88,15 +90,23 @@ function Clear-OrphanedProcesses {
 function Test-PortAvailability {
     $ports = @($API_PORT, $HTML_PORT, $GSI_PORT)
     foreach ($port in $ports) {
+        $portaOcupada = $false
         try {
-            $connection = Test-NetConnection -ComputerName "localhost" -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue
-            if ($connection) {
-                $processes = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
-                foreach ($processId in $processes) {
-                    try { Stop-Process -Id $processId -Force } catch {}
-                }
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $result = $tcp.BeginConnect('localhost', $port, $null, $null)
+            $wait = $result.AsyncWaitHandle.WaitOne(500) # 500ms timeout
+            if ($tcp.Connected) {
+                $tcp.Close()
+                $portaOcupada = $true
             }
         } catch {}
+        if ($portaOcupada) {
+            # Tentar liberar processos na porta
+            $processes = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
+            foreach ($processId in $processes) {
+                try { Stop-Process -Id $processId -Force } catch {}
+            }
+        }
     }
     Show-Success "Portas OK"
 }
@@ -133,9 +143,9 @@ function Invoke-UnitTests {
 # Funcao para testar conectividade
 function Test-Connectivity {
     try {
-        $ping = Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet
+        $ping = Test-Connection -ComputerName "localhost" -Count 1 -Quiet
         if (-not $ping) { Show-Error "Rede: Problemas detectados"; exit 1 }
-        $dns = Resolve-DnsName -Name "google.com" -ErrorAction Stop
+        $dns = Resolve-DnsName -Name "localhost" -ErrorAction Stop
     } catch {
         Show-Error "Conectividade: Problema detectado"
         exit 1
@@ -145,36 +155,41 @@ function Test-Connectivity {
 
 # Funcao para iniciar servicos
 function Start-Services {
+    Log-Debug "Iniciando job da API (.NET)"
+    $projectPath = $PSScriptRoot
+    $global:apiJob = Start-Job -ScriptBlock {
+        param($path)
+        Set-Location -Path $path
+        dotnet run
+    } -ArgumentList $projectPath
+    Log-Debug "Job da API iniciado: $($global:apiJob.Id)"
+    ProgressBar "Aguardando API subir" 8
+    $retries = 0; $maxRetries = 10
+    do {
+        Start-Sleep -Seconds 2
+        try {
+            Log-Debug "Testando endpoint /api/health"
+            $response = Invoke-WebRequest -Uri "$API_URL/api/health" -TimeoutSec 5 -UseBasicParsing
+            if ($response.StatusCode -eq 200) { break }
+        } catch { $retries++ }
+        if ($retries -ge $maxRetries) { Log-Error "API não respondeu"; Stop-AllServices; exit 1 }
+    } while ($retries -lt $maxRetries)
+    Log-Ok "API iniciada"
+
+    Log-Debug "Iniciando job do servidor HTTP (python)"
+    $global:httpJob = Start-Job -ScriptBlock {
+        param($path, $port)
+        Set-Location -Path $path
+        python -m http.server $port
+    } -ArgumentList $projectPath, $HTML_PORT
+    Log-Debug "Job do HTTP iniciado: $($global:httpJob.Id)"
+    ProgressBar "Aguardando servidor HTTP subir" 3
     try {
-        $dotnetProcess = Start-Process -FilePath "dotnet" -ArgumentList "run" -WindowStyle Hidden -PassThru
-        $global:dotnetProcessId = $dotnetProcess.Id
-        Start-Sleep -Seconds 8
-        $retries = 0; $maxRetries = 10
-        do {
-            Start-Sleep -Seconds 2
-            try {
-                $response = Invoke-WebRequest -Uri "$API_URL/api/health" -TimeoutSec 5 -UseBasicParsing
-                if ($response.StatusCode -eq 200) { break }
-            } catch { $retries++ }
-            if ($retries -ge $maxRetries) { Show-Error "API: Falha ao iniciar"; Stop-AllServices; exit 1 }
-        } while ($retries -lt $maxRetries)
-    } catch {
-        Show-Error "API: Erro ao iniciar"
-        Stop-AllServices
-        exit 1
-    }
-    try {
-        $pythonProcess = Start-Process -FilePath "python" -ArgumentList "-m", "http.server", $HTML_PORT -WindowStyle Hidden -PassThru
-        $global:pythonProcessId = $pythonProcess.Id
-        Start-Sleep -Seconds 3
+        Log-Debug "Testando endpoint HTML"
         $response = Invoke-WebRequest -Uri $HTML_URL -TimeoutSec 5 -UseBasicParsing
-        if ($response.StatusCode -ne 200) { Show-Error "HTTP: Falha ao iniciar"; Stop-AllServices; exit 1 }
-    } catch {
-        Show-Error "HTTP: Erro ao iniciar"
-        Stop-AllServices
-        exit 1
-    }
-    Show-Success "Servicos OK"
+        if ($response.StatusCode -ne 200) { Log-Error "HTTP não respondeu"; Stop-AllServices; exit 1 }
+        Log-Ok "Servidor HTTP iniciado"
+    } catch { Log-Error "HTTP não respondeu"; Stop-AllServices; exit 1 }
 }
 
 # Funcao para testar endpoints
@@ -213,72 +228,37 @@ function Show-FinalInfo {
     if ($global:__lastSuccess) {
         Write-Host "Status: $global:__lastSuccess" -ForegroundColor Green
     }
+    Write-Host ""
+    Write-Host "Pressione Ctrl+C ou feche a janela para parar os serviços..." -ForegroundColor Yellow
+    $script:stopRequested = $false
+    trap {
+        Write-Host "\n[AVISO] Ctrl+C detectado. Finalizando serviços..." -ForegroundColor Yellow
+        Stop-AllServices
+        Write-Host "Serviços finalizados!" -ForegroundColor Green
+        $script:stopRequested = $true
+        exit 0
+    }
+    while (-not $script:stopRequested) {
+        Start-Sleep -Seconds 1
+    }
 }
 
-# Variaveis globais para armazenar PIDs dos processos
-$global:dotnetProcessId = $null
-$global:pythonProcessId = $null
+# Adicionar variáveis globais de job
+$global:apiJob = $null
+$global:httpJob = $null
 
 # Funcao para finalizar todos os processos
 function Stop-AllServices {
-    # Parar processo .NET especifico (se conhecido)
-    if ($global:dotnetProcessId -and (Get-Process -Id $global:dotnetProcessId -ErrorAction SilentlyContinue)) {
-        try {
-            Stop-Process -Id $global:dotnetProcessId -Force
-        } catch {}
+    Write-Host "Finalizando servicos..." -ForegroundColor Yellow
+    if ($global:apiJob) {
+        try { Stop-Job -Job $global:apiJob -Force; Remove-Job -Job $global:apiJob -Force } catch {}
+        Write-Host "  [CS2GSI-API] Job finalizado" -ForegroundColor Green
     }
-    # Parar processo Python especifico (se conhecido)
-    if ($global:pythonProcessId -and (Get-Process -Id $global:pythonProcessId -ErrorAction SilentlyContinue)) {
-        try {
-            Stop-Process -Id $global:pythonProcessId -Force
-        } catch {}
+    if ($global:httpJob) {
+        try { Stop-Job -Job $global:httpJob -Force; Remove-Job -Job $global:httpJob -Force } catch {}
+        Write-Host "  [CS2GSI-HTTP] Job finalizado" -ForegroundColor Green
     }
-    # Parar todos os processos dotnet relacionados ao projeto
-    try {
-        $dotnetProcesses = Get-Process -Name "dotnet" -ErrorAction SilentlyContinue | Where-Object {
-            $_.ProcessName -eq "dotnet" -and 
-            $_.MainWindowTitle -like "*CS2GSI*" -or 
-            $_.ProcessName -eq "dotnet"
-        }
-        if ($dotnetProcesses) {
-            foreach ($process in $dotnetProcesses) {
-                try {
-                    Stop-Process -Id $process.Id -Force
-                } catch {}
-            }
-        }
-    } catch {}
-    # Parar todos os processos python relacionados ao servidor HTTP
-    try {
-        $pythonProcesses = Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {
-            $_.ProcessName -eq "python" -or $_.ProcessName -eq "python.exe"
-        }
-        if ($pythonProcesses) {
-            foreach ($process in $pythonProcesses) {
-                try {
-                    $connections = Get-NetTCPConnection -OwningProcess $process.Id -ErrorAction SilentlyContinue | Where-Object {$_.LocalPort -eq $HTML_PORT}
-                    if ($connections) {
-                        Stop-Process -Id $process.Id -Force
-                    }
-                } catch {}
-            }
-        }
-    } catch {}
-    # Parar processos por porta (fallback)
-    try {
-        $apiProcesses = Get-NetTCPConnection -LocalPort $API_PORT -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
-        foreach ($pid in $apiProcesses) {
-            try {
-                Stop-Process -Id $pid -Force
-            } catch {}
-        }
-        $htmlProcesses = Get-NetTCPConnection -LocalPort $HTML_PORT -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
-        foreach ($pid in $htmlProcesses) {
-            try {
-                Stop-Process -Id $pid -Force
-            } catch {}
-        }
-    } catch {}
+    Write-Host "Servicos finalizados!" -ForegroundColor Green
 }
 
 # Funcao para monitoramento continuo
@@ -336,26 +316,18 @@ function Start-Monitoring {
 # Funcao principal
 function Main {
     Show-Header
-    
-    # Configurar tratamento de sinal para capturar Ctrl+C e fechamento
-    $null = Register-EngineEvent PowerShell.Exiting -Action {
-        Stop-AllServices
-    }
-    
-    # Configurar tratamento de Ctrl+C
+    Log-Debug "Entrando em Main"
     try {
-        $null = Register-EngineEvent -SourceIdentifier ([System.Console]::CancelKeyPress) -Action {
-            Write-Host ""
-            Show-Info "Sinal de cancelamento recebido. Finalizando servicos..."
+        # Configurar tratamento de sinal para capturar Ctrl+C e fechamento
+        $null = Register-EngineEvent PowerShell.Exiting -Action {
             Stop-AllServices
-            exit 0
         }
-    } catch {
-        # Fallback se o evento não estiver disponível
-        Show-Warning "Tratamento de Ctrl+C limitado"
-    }
-    
-    try {
+        
+        # Configurar para finalizar processos quando o PowerShell for fechado
+        $null = Register-EngineEvent PowerShell.Exiting -Action {
+            Stop-AllServices
+        }
+        
         # Verificar parametros
         if ($Headless) {
             Show-Info "Modo headless ativado"
@@ -363,35 +335,68 @@ function Main {
         
         # Executar verificacoes
         if (-not $SkipChecks) {
-            Test-CorrectDirectory
+            Log-Debug "Entrando em Test-SystemRequirements"
             Test-SystemRequirements
-            Clear-OrphanedProcesses
+            Log-Debug "Entrando em Test-PortAvailability"
             Test-PortAvailability
+            Log-Debug "Entrando em Restore-Dependencies"
             Restore-Dependencies
         } else {
             Show-Warning "Verificacoes de sistema puladas (--SkipChecks)"
         }
         
         # Executar testes
+        Log-Debug "Entrando em Invoke-UnitTests"
         Invoke-UnitTests
         
         # Testar conectividade
         Test-Connectivity
         
         # Iniciar servicos
+        Log-Debug "Entrando em Start-Services"
         Start-Services
         
         # Testar endpoints
+        Log-Debug "Entrando em Test-Endpoints"
         Test-Endpoints
         
         # Mostrar informacoes finais
+        Log-Debug "Entrando em Show-FinalInfo"
         Show-FinalInfo
         
     } catch {
-        Show-Error "Erro inesperado: $($_.Exception.Message)"
+        Log-Error "Erro inesperado: $($_.Exception.Message)"
         Stop-AllServices
         exit 1
     }
+}
+
+# Funcao para exibir mensagens de debug
+function Log-Debug { param($msg) Write-Host "DEBUG: $msg" -ForegroundColor Magenta }
+
+# Funcao para exibir mensagens de erro
+function Log-Error { param($msg) Show-Error $msg }
+
+# Funcao para exibir mensagens de sucesso
+function Log-Ok { param($msg) Show-Success $msg }
+
+# Funcao para exibir mensagens de informacao
+function Log-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Cyan }
+
+# Funcao para exibir mensagens de aviso
+function Log-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
+
+# Funcao para exibir mensagens de passo
+function Log-Step { param($msg) Write-Host "`n==== $msg ====" -ForegroundColor Magenta }
+
+# Funcao para exibir mensagens de progresso
+function ProgressBar {
+    param($msg, $secs)
+    for ($i=0; $i -le $secs; $i++) {
+        Write-Progress -Activity $msg -Status "Aguarde..." -PercentComplete ($i*100/$secs)
+        Start-Sleep -Seconds 1
+    }
+    Write-Progress -Activity $msg -Completed
 }
 
 # Executar funcao principal

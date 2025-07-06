@@ -230,7 +230,55 @@ app.MapGet("/api/player", () =>
         return Results.NotFound("No player data available.");
     }
 
-    return Results.Ok(latestGameState.Player);
+    var playerResponse = new
+    {
+        steamid = latestGameState.Player.SteamID,
+        name = latestGameState.Player.Name,
+        observer_slot = latestGameState.Player.ObserverSlot,
+        team = latestGameState.Player.Team,
+        activity = latestGameState.Player.Activity,
+        state = new
+        {
+            health = latestGameState.Player.State?.Health,
+            armor = latestGameState.Player.State?.Armor,
+            helmet = latestGameState.Player.State?.HasHelmet,
+            defusekit = latestGameState.Player.State?.HasDefuseKit,
+            flashed = latestGameState.Player.State?.FlashAmount,
+            smoked = latestGameState.Player.State?.SmokedAmount,
+            burning = latestGameState.Player.State?.BurningAmount,
+            money = latestGameState.Player.State?.Money,
+            round_kills = latestGameState.Player.State?.RoundKills,
+            round_killhs = latestGameState.Player.State?.RoundHSKills,
+            round_totaldmg = latestGameState.Player.State?.RoundTotalDamage,
+            equip_value = latestGameState.Player.State?.EquipmentValue
+        },
+        weapons = latestGameState.Player.Weapons?.Select(w => new
+        {
+            name = w.Name,
+            paintkit = w.PaintKit,
+            type = w.Type,
+            state = w.State,
+            ammo_clip = w.AmmoClip,
+            ammo_clip_max = w.AmmoClipMax,
+            ammo_reserve = w.AmmoReserve
+        }).ToList(),
+        match_stats = new
+        {
+            kills = latestGameState.Player.MatchStats?.Kills,
+            assists = latestGameState.Player.MatchStats?.Assists,
+            deaths = latestGameState.Player.MatchStats?.Deaths,
+            mvps = latestGameState.Player.MatchStats?.MVPs,
+            score = latestGameState.Player.MatchStats?.Score
+        },
+        position = new
+        {
+            x = latestGameState.Player.Position.X,
+            y = latestGameState.Player.Position.Y,
+            z = latestGameState.Player.Position.Z
+        }
+    };
+
+    return Results.Ok(playerResponse);
 });
 
 // Endpoint to get only map information
@@ -241,7 +289,18 @@ app.MapGet("/api/map", () =>
         return Results.NotFound("No map data available.");
     }
 
-    return Results.Ok(latestGameState.Map);
+    var mapResponse = new
+    {
+        mode = latestGameState.Map.Mode,
+        name = latestGameState.Map.Name,
+        phase = latestGameState.Map.Phase,
+        round = latestGameState.Map.Round,
+        team_ct = latestGameState.Map.CTStatistics,
+        team_t = latestGameState.Map.TStatistics,
+        num_matches_to_win_series = latestGameState.Map.NumberOfMatchesToWinSeries
+    };
+
+    return Results.Ok(mapResponse);
 });
 
 // Endpoint to get only all players information
@@ -252,7 +311,55 @@ app.MapGet("/api/allplayers", () =>
         return Results.NotFound("No all players data available.");
     }
 
-    return Results.Ok(latestGameState.AllPlayers);
+    var allPlayersResponse = latestGameState.AllPlayers.Select(p => new
+    {
+        steamid = p.Value.SteamID,
+        name = p.Value.Name,
+        observer_slot = p.Value.ObserverSlot,
+        team = p.Value.Team,
+        activity = p.Value.Activity,
+        state = new
+        {
+            health = p.Value.State?.Health,
+            armor = p.Value.State?.Armor,
+            helmet = p.Value.State?.HasHelmet,
+            defusekit = p.Value.State?.HasDefuseKit,
+            flashed = p.Value.State?.FlashAmount,
+            smoked = p.Value.State?.SmokedAmount,
+            burning = p.Value.State?.BurningAmount,
+            money = p.Value.State?.Money,
+            round_kills = p.Value.State?.RoundKills,
+            round_killhs = p.Value.State?.RoundHSKills,
+            round_totaldmg = p.Value.State?.RoundTotalDamage,
+            equip_value = p.Value.State?.EquipmentValue
+        },
+        weapons = p.Value.Weapons?.Select(w => new
+        {
+            name = w.Name,
+            paintkit = w.PaintKit,
+            type = w.Type,
+            state = w.State,
+            ammo_clip = w.AmmoClip,
+            ammo_clip_max = w.AmmoClipMax,
+            ammo_reserve = w.AmmoReserve
+        }).ToList(),
+        match_stats = new
+        {
+            kills = p.Value.MatchStats?.Kills,
+            assists = p.Value.MatchStats?.Assists,
+            deaths = p.Value.MatchStats?.Deaths,
+            mvps = p.Value.MatchStats?.MVPs,
+            score = p.Value.MatchStats?.Score
+        },
+        position = new
+        {
+            x = p.Value.Position.X,
+            y = p.Value.Position.Y,
+            z = p.Value.Position.Z
+        }
+    }).ToList();
+
+    return Results.Ok(allPlayersResponse);
 });
 
 // Endpoint to get only bomb information
@@ -263,7 +370,19 @@ app.MapGet("/api/bomb", () =>
         return Results.NotFound("No bomb data available.");
     }
 
-    return Results.Ok(latestGameState.Bomb);
+    var bombResponse = new
+    {
+        state = latestGameState.Bomb.State,
+        position = new
+        {
+            x = latestGameState.Bomb.Position.X,
+            y = latestGameState.Bomb.Position.Y,
+            z = latestGameState.Bomb.Position.Z
+        },
+        player = latestGameState.Bomb.Player
+    };
+
+    return Results.Ok(bombResponse);
 });
 
 // Endpoint to get only grenades information
@@ -274,7 +393,27 @@ app.MapGet("/api/grenades", () =>
         return Results.NotFound("No grenades data available.");
     }
 
-    return Results.Ok(latestGameState.AllGrenades);
+    var grenadesResponse = latestGameState.AllGrenades.Select(g => new
+    {
+        owner = g.Value.Owner,
+        position = new
+        {
+            x = g.Value.Position.X,
+            y = g.Value.Position.Y,
+            z = g.Value.Position.Z
+        },
+        velocity = new
+        {
+            x = g.Value.Velocity.X,
+            y = g.Value.Velocity.Y,
+            z = g.Value.Velocity.Z
+        },
+        lifetime = g.Value.Lifetime,
+        type = g.Value.Type,
+        effecttime = g.Value.EffectTime
+    }).ToList();
+
+    return Results.Ok(grenadesResponse);
 });
 
 // Health check endpoint

@@ -420,6 +420,7 @@ Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICE
 ## 🙏 Agradecimentos
 
 - Valve Corporation pelo Game State Integration
+- Antonpup pela estrutura 
 - Comunidade CS2 por feedback e sugestões
 - Contribuidores do projeto
 

@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n API,FRONTEND -c blue,green \"cd CS2GSI-API && dotnet run\" \"cd dashboard-visual && npm run dev -- --port 8080 --host\""
+  }
+}
